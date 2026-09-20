@@ -1,0 +1,69 @@
+# OCT surface audit console.
+#
+# Host ports are configurable via a .env file or environment:
+#   WEB_PORT  (default 8080)  -> browser UI
+#   API_PORT  (default 8000)  -> FastAPI directly
+#
+# End-to-end acceptance (builds, waits for health, runs checks, exits with a
+# status code):
+#   docker compose build && docker compose up -d
+#   docker compose run --rm verify ; echo "exit=$?"
+
+services:
+  api:
+    build:
+      context: .
+      target: api-base
+    image: oct-audit-api
+    environment:
+      OCT_HOST: 0.0.0.0
+      OCT_PORT: "8000"
+      OCT_SOLVER_TIMEOUT: "120"
+    ports:
+      # host:container — override the host side with API_PORT
+      - "${API_PORT:-8000}:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3).status == 200 else 1)"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    restart: unless-stopped
+
+  web:
+    build:
+      context: .
+      target: web
+    image: oct-audit-web
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "${WEB_PORT:-8080}:80"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1/"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 3s
+    restart: unless-stopped
+
+  # One-shot end-to-end acceptance service. Exits 0 on success, non-zero
+  # on any failed check, and removes itself with --rm. It is profile-gated
+  # so a plain "up" only starts api/web; run it explicitly:
+  #   docker compose run --rm verify
+  verify:
+    profiles: ["verify"]
+    build:
+      context: .
+      target: verify
+    image: oct-audit-verify
+    depends_on:
+      api:
+        condition: service_healthy
+      web:
+        condition: service_healthy
+    environment:
+      API_BASE: http://api:8000
+      WEB_BASE: http://web:80
+    restart: "no"

@@ -1,0 +1,9 @@
+**/node_modules/
+**/__pycache__/
+**/*.pyc
+frontend/dist/
+backend/app/static/
+backend/native/oct_solver
+.git/
+.env
+.DS_Store
